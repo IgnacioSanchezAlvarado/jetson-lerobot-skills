@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Full Deployment",
+  "description": "Guides through complete project deployment from fresh clone to working demo. Covers Mac setup, cloud deploy, and Jetson edge sync.",
+  "version": "1",
+  "when": {
+    "type": "userTriggered"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Run the full deployment flow. Load the #deploy steering file and guide me through all 4 phases in order: Mac Local Setup, Cloud Deploy (including pre-deploy CloudFormation checks), Edge Sync to Jetson, and End-to-End Verification. Use aws-pai CLI commands. Never run cdk deploy/destroy directly."
+  }
+}

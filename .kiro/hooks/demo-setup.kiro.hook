@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Demo Pre-Flight Check",
+  "description": "Runs a full pre-flight check on the Jetson demo hardware: SSH connectivity, USB ports, cameras, services, calibration, config alignment, and cloud access.",
+  "version": "1",
+  "when": {
+    "type": "userTriggered"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Run the demo pre-flight check flow. Load the #demo-setup steering file and execute all checks: cloud instance access, network connectivity, USB serial ports, cameras, services, calibration files, config alignment, dashboard, and system health. SSH into the Jetson proactively — do not ask me to run commands. Present results as a PASS/FAIL/WARN checklist."
+  }
+}
