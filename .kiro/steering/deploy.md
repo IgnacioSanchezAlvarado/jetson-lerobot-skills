@@ -65,6 +65,12 @@ Guide the user through deploying the LeRobot SO-101 AWS Sim2Real2Sim project. Fo
 - Run: `aws-pai doctor`
 - All required checks must pass. If any fail, diagnose and fix before continuing.
 
+### 1.2b Container Runtime (REQUIRED for deploy)
+`aws-pai deploy` builds Docker image assets locally, so a container daemon must be running first —
+verify with `docker info` (note: `aws-pai doctor` only checks the Docker CLI, not the daemon). On
+Apple Silicon the assets build for `linux/amd64` under x86 emulation (`docker buildx` handles this);
+emulated builds are slow, so the first deploy's image build can take 15-25 min — expected, not a hang.
+
 ### 1.3 HuggingFace Token
 - Check if token exists: `cat ~/.cache/huggingface/token`
 - Copy into project: `echo "HF_TOKEN=$(cat ~/.cache/huggingface/token)" > .env.local`
@@ -87,9 +93,9 @@ Guide the user through deploying the LeRobot SO-101 AWS Sim2Real2Sim project. Fo
 ### 2.0 Pre-Deploy: Check CloudFormation State
 Before deploying, check for orphaned stacks or resources from a previous deployment. Read the region from `config.json` and use it in all AWS CLI commands.
 
-**Step 1 — Check stack status:**
+**Step 1 — Check stack status** (the project deploys 7 stacks: `IsaacSimDTStack`, `LeRobotIotStack`, `CudaMirrorStack`, `CodeBuildStack`, `DTV2-Auth`, `DTV2-DataManagement`, `DTV2-Dashboard`):
 ```bash
-aws cloudformation list-stacks --region <REGION> --query "StackSummaries[?contains(StackName,'LeRobot') || contains(StackName,'IsaacSim') || contains(StackName,'CodeBuild') || contains(StackName,'CudaMirror')].{Name:StackName,Status:StackStatus}" --output table
+aws cloudformation list-stacks --region <REGION> --query "StackSummaries[?StackStatus!='DELETE_COMPLETE' && (contains(StackName,'LeRobot') || contains(StackName,'IsaacSim') || contains(StackName,'CodeBuild') || contains(StackName,'CudaMirror') || contains(StackName,'DTV2'))].{Name:StackName,Status:StackStatus}" --output table
 ```
 
 **Step 2 — Resolve based on what you find:**
@@ -117,18 +123,36 @@ aws cloudformation list-stacks --region <REGION> --query "StackSummaries[?contai
 **General principle**: When in doubt, prefer clean-slate: delete orphaned resources and re-provision the Jetson after deploy. Re-provisioning is cheap and fast. Trying to preserve orphaned IoT state across deploys causes more issues than it solves.
 
 ### 2.1 Deploy CDK Stacks
-- Run: `aws-pai deploy`
-- If it fails, read the error carefully:
-  - "already exists" → orphaned resource, handle per step 2.0
-  - "DELETE_FAILED" → stack stuck, handle per step 2.0
-  - CDK synthesis errors → code issue, investigate `infra/` stack files
-  - Permissions errors → check IAM role/user has CDK deploy permissions
-- On success, stacks create IoT Core resources + EC2 with Isaac Sim
+- Run: `aws-pai deploy` (from the repo root). On success it creates all 7 stacks: IoT Core, EC2 with
+  Isaac Sim, and the data-management + auth + dashboard stacks.
+- **Expect ~20-40 min on a first/clean deploy — this is normal, not a hang.** CDK deploys the 7 stacks
+  in dependency order; the dashboard (`DTV2-Dashboard`, which owns the CloudFront distribution + URL)
+  depends on `DTV2-DataManagement`, so it deploys **last** — the URL only appears at the very end. The
+  long poles are the SageMaker inference image build (slow under emulation on Apple Silicon) and the
+  first-time CloudFront distribution (~5-10 min). None of it waits on GPU instance availability.
+- Watch per-stack progress with the Step-1 query or the CloudFormation console.
+- Common failure causes: orphaned resource ("already exists") or stuck stack ("DELETE_FAILED") → handle
+  per step 2.0; no container daemon (`failed to connect to the docker API`) → start it (see 1.2b).
+
+### 2.1b Cost control: skip the Isaac Sim GPU instance
+Set `"hibernate": true` in `config.json` → `ec2` BEFORE deploy to bring the GPU AutoScalingGroup up at
+0 instances (~no cost) — use this when you only need the cloud control plane / dashboard, not Isaac Sim.
+Changing it requires a redeploy; wake the instance later with `aws-pai deploy --wake`.
 
 ### 2.2 Verify Cloud
 - Run: `aws-pai status` — confirm DCV URL, instance IP, IoT endpoint are present
 - Run: `aws-pai cloud diagnose` — should pass all checks
 - If instance is stopped: `aws-pai deploy --wake`
+
+### 2.3 Dashboard URL + Login (CloudFront + Cognito)
+- The **CloudFront dashboard URL** is an output of the last stack (`DTV2-Dashboard`) — it only exists
+  once that stack completes. Get it from `aws-pai status` or the stack's `DashboardUrl` output.
+- Login is gated by Cognito, seeded from `config.json` → `auth.adminEmails`. **Set this to a real
+  address before deploy** — the placeholder `admin@example.com` deploys fine but the invite email goes
+  nowhere, so no one can log in. Cognito emails a temp password; first login forces a password change.
+- **Object-detection (YOLO)** runs on a SageMaker endpoint that scales to zero when idle, so the first
+  detection request after deploy/idle takes ~4-6 min to warm up (later ones are fast). Independent of
+  robot VLA inference.
 
 ---
 
