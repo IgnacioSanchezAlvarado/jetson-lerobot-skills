@@ -85,6 +85,9 @@ emulated builds are slow, so the first deploy's image build can take 15-25 min â
   - **HuggingFace token**: should auto-detect from `.env.local`
   - **Region and instance type**: user's choice, use existing values if redeploying
 - This creates `config.json` (gitignored, per-developer)
+- **Before deploying, set `auth.adminEmails` in `config.json` to a real address.** Cognito seeds
+  the dashboard login from this list and emails each one a temp password. The placeholder
+  `admin@example.com` deploys fine but its invite goes nowhere, so no one can log in.
 
 ---
 
